@@ -201,7 +201,7 @@ def _codebase_digest(ctx: ToolContext) -> str:
 
 def _summarize_dialogue(ctx: ToolContext, last_n: int = 200) -> str:
     """Summarize dialogue history into key moments, decisions, and creator preferences."""
-    from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
+    from ouroboros.llm import LLMClient, DEFAULT_MODEL
 
     # Read last_n messages from chat.jsonl
     chat_path = ctx.drive_root / "logs" / "chat.jsonl"
@@ -258,7 +258,7 @@ Now write a comprehensive summary:"""
 
         # Call LLM
         llm = LLMClient()
-        model = os.environ.get("OUROBOROS_MODEL_LIGHT", "") or DEFAULT_LIGHT_MODEL
+        model = os.environ.get("OUROBOROS_MODEL", "") or DEFAULT_MODEL
 
         messages = [
             {"role": "user", "content": prompt}
@@ -341,12 +341,12 @@ def get_tools() -> List[ToolEntry]:
         }, _repo_list),
         ToolEntry("drive_read", {
             "name": "drive_read",
-            "description": "Read a UTF-8 text file from Google Drive (relative to MyDrive/Ouroboros/).",
+            "description": "Read a UTF-8 text file from persistent storage root (relative to drive_root).",
             "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
         }, _drive_read),
         ToolEntry("drive_list", {
             "name": "drive_list",
-            "description": "List files under a Drive directory.",
+            "description": "List files under persistent storage root (drive_root).",
             "parameters": {"type": "object", "properties": {
                 "dir": {"type": "string", "default": "."},
                 "max_entries": {"type": "integer", "default": 500},
@@ -354,7 +354,7 @@ def get_tools() -> List[ToolEntry]:
         }, _drive_list),
         ToolEntry("drive_write", {
             "name": "drive_write",
-            "description": "Write a UTF-8 text file on Google Drive.",
+            "description": "Write a UTF-8 text file in persistent storage root (drive_root).",
             "parameters": {"type": "object", "properties": {
                 "path": {"type": "string"},
                 "content": {"type": "string"},

@@ -21,7 +21,9 @@ MAX_MODELS = 10
 # Concurrency limit for parallel requests
 CONCURRENCY_LIMIT = 5
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+def _chat_completions_url() -> str:
+    base = os.environ.get("OUROBOROS_LLM_BASE_URL", "").strip() or "http://host.docker.internal:1234/v1"
+    return f"{base.rstrip('/')}/chat/completions"
 
 
 def get_tools():
@@ -92,7 +94,7 @@ async def _query_model(client, model, messages, api_key, semaphore):
     async with semaphore:
         try:
             resp = await client.post(
-                OPENROUTER_URL,
+                _chat_completions_url(),
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
@@ -146,9 +148,14 @@ async def _multi_model_review_async(content: str, prompt: str, models: list, ctx
     if len(models) == 0:
         return {"error": "At least one model is required"}
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    api_key = (
+        os.environ.get("OUROBOROS_LLM_API_KEY", "")
+        or os.environ.get("OPENAI_API_KEY", "")
+        or os.environ.get("OPENROUTER_API_KEY", "")
+        or "lm-studio"
+    )
     if not api_key:
-        return {"error": "OPENROUTER_API_KEY not set"}
+        return {"error": "No LLM API key configured"}
 
     messages = [
         {"role": "system", "content": prompt},

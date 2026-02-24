@@ -35,12 +35,16 @@ def export_secret_to_env(name: str, required: bool = False) -> Optional[str]:
 
 
 # Export required runtime secrets so subprocess launcher can always read env fallback.
-for _name in ("OPENROUTER_API_KEY", "TELEGRAM_BOT_TOKEN", "TOTAL_BUDGET", "GITHUB_TOKEN"):
+for _name in ("TELEGRAM_BOT_TOKEN", "TOTAL_BUDGET", "GITHUB_TOKEN"):
     export_secret_to_env(_name, required=True)
 
 # Optional secrets (keep empty if missing).
-for _name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+for _name in ("OUROBOROS_LLM_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
     export_secret_to_env(_name, required=False)
+
+# Local model defaults (can be overridden in config cell/env).
+os.environ.setdefault("OUROBOROS_LLM_BASE_URL", "http://127.0.0.1:1234/v1")
+os.environ.setdefault("OUROBOROS_MODEL", "qwen/qwen3-30b-a3b-2507")
 
 # Colab diagnostics defaults (override in config cell if needed).
 os.environ.setdefault("OUROBOROS_WORKER_START_METHOD", "fork")

@@ -1,0 +1,28 @@
+services:
+  ouroboros:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    shm_size: "1gb"
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ouroboros_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import pathlib,time,sys; p=pathlib.Path('/data/Ouroboros/logs/supervisor.jsonl'); sys.exit(0 if p.exists() and (time.time()-p.stat().st_mtime)<180 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  ouroboros_data:
+

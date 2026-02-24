@@ -696,13 +696,9 @@ def run_llm_loop(
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
 
-            # Fallback to another model if primary model returns empty responses
+            # Optional fallback model (explicitly configured via env)
             if msg is None:
-                # Configurable fallback priority list (Bible P3: no hardcoded behavior)
-                fallback_list_raw = os.environ.get(
-                    "OUROBOROS_MODEL_FALLBACK_LIST",
-                    "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6"
-                )
+                fallback_list_raw = os.environ.get("OUROBOROS_MODEL_FALLBACK_LIST", "")
                 fallback_candidates = [m.strip() for m in fallback_list_raw.split(",") if m.strip()]
                 fallback_model = None
                 for candidate in fallback_candidates:
@@ -712,7 +708,7 @@ def run_llm_loop(
                 if fallback_model is None:
                     return (
                         f"⚠️ Failed to get a response from model {active_model} after {max_retries} attempts. "
-                        f"All fallback models match the active one. Try rephrasing your request."
+                        f"No alternate fallback model is configured. Try rephrasing your request."
                     ), accumulated_usage, llm_trace
 
                 # Emit progress message so user sees fallback happening

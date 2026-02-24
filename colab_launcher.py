@@ -19,7 +19,8 @@ def install_launcher_deps() -> None:
         check=True,
     )
 
-install_launcher_deps()
+if str(os.environ.get("OUROBOROS_SKIP_RUNTIME_PIP", "")).strip().lower() not in {"1", "true", "yes"}:
+    install_launcher_deps()
 
 def ensure_claude_code_cli() -> bool:
     """Best-effort install of Claude Code CLI for Anthropic-powered code edits."""
@@ -44,14 +45,30 @@ def ensure_claude_code_cli() -> bool:
 # 0.1) provide apply_patch shim
 # ----------------------------
 from ouroboros.apply_patch import install as install_apply_patch
-from ouroboros.llm import DEFAULT_LIGHT_MODEL
+from ouroboros.llm import DEFAULT_MODEL
 install_apply_patch()
 
 # ----------------------------
 # 1) Secrets + runtime config
 # ----------------------------
-from google.colab import userdata  # type: ignore
-from google.colab import drive  # type: ignore
+_HAS_GOOGLE_COLAB = False
+try:
+    from google.colab import userdata  # type: ignore
+    from google.colab import drive  # type: ignore
+    _HAS_GOOGLE_COLAB = True
+except Exception:
+    class _UserdataShim:
+        @staticmethod
+        def get(name: str) -> Optional[str]:
+            return os.environ.get(name)
+
+    class _DriveShim:
+        @staticmethod
+        def mount(_path: str) -> None:
+            return None
+
+    userdata = _UserdataShim()
+    drive = _DriveShim()
 
 _LEGACY_CFG_WARNED: Set[str] = set()
 
@@ -90,10 +107,15 @@ def _parse_int_cfg(raw: Optional[str], default: int, minimum: int = 0) -> int:
         val = default
     return max(minimum, val)
 
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=True)
 TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN", required=True)
 TOTAL_BUDGET_DEFAULT = get_secret("TOTAL_BUDGET", required=True)
 GITHUB_TOKEN = get_secret("GITHUB_TOKEN", required=True)
+LLM_BASE_URL = get_cfg("OUROBOROS_LLM_BASE_URL", default="http://host.docker.internal:1234/v1", allow_legacy_secret=True)
+LLM_API_KEY = get_secret("OUROBOROS_LLM_API_KEY", default=None, required=False)
+if not LLM_API_KEY:
+    LLM_API_KEY = get_secret("OPENAI_API_KEY", default=None, required=False)
+if not LLM_API_KEY:
+    LLM_API_KEY = get_secret("OPENROUTER_API_KEY", default="lm-studio", required=False)
 
 # Robust TOTAL_BUDGET parsing — handles \r\n, spaces, and other junk from Colab Secrets
 # Example: user enters "8 800" → Colab stores as "8\r\n800" → we need 8800
@@ -115,9 +137,7 @@ GITHUB_REPO = get_cfg("GITHUB_REPO", default=None, allow_legacy_secret=True)
 assert GITHUB_USER and str(GITHUB_USER).strip(), "GITHUB_USER not set. Add it to your config cell (see README)."
 assert GITHUB_REPO and str(GITHUB_REPO).strip(), "GITHUB_REPO not set. Add it to your config cell (see README)."
 MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="5", allow_legacy_secret=True) or "5")
-MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
-MODEL_CODE = get_cfg("OUROBOROS_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
-MODEL_LIGHT = get_cfg("OUROBOROS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
+MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default=DEFAULT_MODEL, allow_legacy_secret=True)
 
 BUDGET_REPORT_EVERY_MESSAGES = 10
 SOFT_TIMEOUT_SEC = max(60, int(get_cfg("OUROBOROS_SOFT_TIMEOUT_SEC", default="600", allow_legacy_secret=True) or "600"))
@@ -133,15 +153,13 @@ DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(
     minimum=0,
 )
 
-os.environ["OPENROUTER_API_KEY"] = str(OPENROUTER_API_KEY)
+os.environ["OUROBOROS_LLM_BASE_URL"] = str(LLM_BASE_URL or "http://host.docker.internal:1234/v1")
+os.environ["OUROBOROS_LLM_API_KEY"] = str(LLM_API_KEY or "lm-studio")
 os.environ["OPENAI_API_KEY"] = str(OPENAI_API_KEY or "")
 os.environ["ANTHROPIC_API_KEY"] = str(ANTHROPIC_API_KEY or "")
 os.environ["GITHUB_USER"] = str(GITHUB_USER)
 os.environ["GITHUB_REPO"] = str(GITHUB_REPO)
-os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "anthropic/claude-sonnet-4.6")
-os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "anthropic/claude-sonnet-4.6")
-if MODEL_LIGHT:
-    os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
+os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or DEFAULT_MODEL)
 os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
 os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
@@ -150,13 +168,22 @@ if str(ANTHROPIC_API_KEY or "").strip():
     ensure_claude_code_cli()
 
 # ----------------------------
-# 2) Mount Drive
+# 2) Storage + paths
 # ----------------------------
-if not pathlib.Path("/content/drive/MyDrive").exists():
+if _HAS_GOOGLE_COLAB and not pathlib.Path("/content/drive/MyDrive").exists():
     drive.mount("/content/drive")
 
-DRIVE_ROOT = pathlib.Path("/content/drive/MyDrive/Ouroboros").resolve()
-REPO_DIR = pathlib.Path("/content/ouroboros_repo").resolve()
+DRIVE_ROOT = pathlib.Path(
+    os.environ.get("DRIVE_ROOT")
+    or os.environ.get("OUROBOROS_DRIVE_ROOT")
+    or "/content/drive/MyDrive/Ouroboros"
+).resolve()
+REPO_DIR = pathlib.Path(
+    os.environ.get("REPO_DIR")
+    or os.environ.get("OUROBOROS_REPO_DIR")
+    or "/content/ouroboros_repo"
+).resolve()
+os.environ["DRIVE_ROOT"] = str(DRIVE_ROOT)
 
 for sub in ["state", "logs", "memory", "index", "locks", "archive"]:
     (DRIVE_ROOT / sub).mkdir(parents=True, exist_ok=True)
@@ -265,7 +292,7 @@ append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "branch": load_state().get("current_branch"),
     "sha": load_state().get("current_sha"),
     "max_workers": MAX_WORKERS,
-    "model_default": MODEL_MAIN, "model_code": MODEL_CODE, "model_light": MODEL_LIGHT,
+    "model_default": MODEL_MAIN,
     "soft_timeout_sec": SOFT_TIMEOUT_SEC, "hard_timeout_sec": HARD_TIMEOUT_SEC,
     "worker_start_method": str(os.environ.get("OUROBOROS_WORKER_START_METHOD") or ""),
     "diag_heartbeat_sec": DIAG_HEARTBEAT_SEC,
