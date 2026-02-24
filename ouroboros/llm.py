@@ -1,7 +1,7 @@
 """
 Ouroboros — LLM client.
 
-The only module that communicates with the LLM API (OpenRouter).
+The only module that communicates with the LLM API (OpenAI-compatible endpoint).
 Contract: chat(), default_model(), available_models(), add_usage().
 """
 
@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LIGHT_MODEL = "google/gemini-3-pro-preview"
+DEFAULT_MODEL = "qwen/qwen3-30b-a3b-2507"
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -103,28 +103,41 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
 
 
 class LLMClient:
-    """OpenRouter API wrapper. All LLM calls go through this class."""
+    """OpenAI-compatible API wrapper. All LLM calls go through this class."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "https://openrouter.ai/api/v1",
+        base_url: Optional[str] = None,
     ):
-        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        self._base_url = base_url
+        self._api_key = (
+            api_key
+            or os.environ.get("OUROBOROS_LLM_API_KEY", "")
+            or os.environ.get("OPENAI_API_KEY", "")
+            or os.environ.get("OPENROUTER_API_KEY", "")
+            or "lm-studio"
+        )
+        self._base_url = (
+            base_url
+            or os.environ.get("OUROBOROS_LLM_BASE_URL", "").strip()
+            or "http://localhost:1234/v1"
+        )
         self._client = None
 
     def _get_client(self):
         if self._client is None:
             from openai import OpenAI
-            self._client = OpenAI(
-                base_url=self._base_url,
-                api_key=self._api_key,
-                default_headers={
+            kwargs: Dict[str, Any] = {
+                "base_url": self._base_url,
+                "api_key": self._api_key,
+            }
+            # OpenRouter-specific attribution headers (safe to skip for local providers)
+            if "openrouter.ai" in str(self._base_url):
+                kwargs["default_headers"] = {
                     "HTTP-Referer": "https://colab.research.google.com/",
                     "X-Title": "Ouroboros",
-                },
-            )
+                }
+            self._client = OpenAI(**kwargs)
         return self._client
 
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
@@ -164,24 +177,16 @@ class LLMClient:
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
-        extra_body: Dict[str, Any] = {
-            "reasoning": {"effort": effort, "exclude": True},
-        }
-
-        # Pin Anthropic models to Anthropic provider for prompt caching
-        if model.startswith("anthropic/"):
-            extra_body["provider"] = {
-                "order": ["Anthropic"],
-                "allow_fallbacks": False,
-                "require_parameters": True,
-            }
-
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "extra_body": extra_body,
         }
+        # Keep OpenRouter-specific reasoning block only for OpenRouter base URL.
+        if "openrouter.ai" in str(self._base_url):
+            kwargs["extra_body"] = {
+                "reasoning": {"effort": effort, "exclude": True},
+            }
         if tools:
             # Add cache_control to last tool for Anthropic prompt caching
             # This caches all tool schemas (they never change between calls)
@@ -217,13 +222,9 @@ class LLMClient:
                 if cache_write:
                     usage["cache_write_tokens"] = int(cache_write)
 
-        # Ensure cost is present in usage (OpenRouter includes it, but fallback if missing)
-        if not usage.get("cost"):
-            gen_id = resp_dict.get("id") or ""
-            if gen_id:
-                cost = self._fetch_generation_cost(gen_id)
-                if cost is not None:
-                    usage["cost"] = cost
+        # Local providers usually don't return billing metadata.
+        if usage.get("cost") is None:
+            usage["cost"] = 0.0
 
         return msg, usage
 
@@ -231,7 +232,7 @@ class LLMClient:
         self,
         prompt: str,
         images: List[Dict[str, Any]],
-        model: str = "anthropic/claude-sonnet-4.6",
+        model: str = DEFAULT_MODEL,
         max_tokens: int = 1024,
         reasoning_effort: str = "low",
     ) -> Tuple[str, Dict[str, Any]]:
@@ -280,16 +281,8 @@ class LLMClient:
 
     def default_model(self) -> str:
         """Return the single default model from env. LLM switches via tool if needed."""
-        return os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4.6")
+        return os.environ.get("OUROBOROS_MODEL", DEFAULT_MODEL)
 
     def available_models(self) -> List[str]:
         """Return list of available models from env (for switch_model tool schema)."""
-        main = os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4.6")
-        code = os.environ.get("OUROBOROS_MODEL_CODE", "")
-        light = os.environ.get("OUROBOROS_MODEL_LIGHT", "")
-        models = [main]
-        if code and code != main:
-            models.append(code)
-        if light and light != main and light != code:
-            models.append(light)
-        return models
+        return [self.default_model()]

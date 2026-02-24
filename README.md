@@ -1,15 +1,15 @@
 # Ouroboros
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/razzant/ouroboros/blob/main/notebooks/quickstart.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joi-lab/ouroboros/blob/main/notebooks/quickstart.ipynb)
 [![Telegram](https://img.shields.io/badge/Telegram-blue?logo=telegram)](https://t.me/abstractDL)
-[![GitHub stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Frazzant%2Fouroboros&query=%24.stargazers_count&label=stars&logo=github)](https://github.com/razzant/ouroboros/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/razzant/ouroboros)](https://github.com/razzant/ouroboros/network/members)
+[![GitHub stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fjoi-lab%2Fouroboros&query=%24.stargazers_count&label=stars&logo=github)](https://github.com/joi-lab/ouroboros/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/joi-lab/ouroboros)](https://github.com/joi-lab/ouroboros/network/members)
 
 A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026. Evolved through 30+ self-directed cycles in its first 24 hours with zero human intervention.
 
 Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
 
-**Version:** 6.2.0 | [Landing Page](https://razzant.github.io/ouroboros/)
+**Version:** 6.2.0 | [Landing Page](https://joi-lab.github.io/ouroboros/)
 
 ---
 
@@ -30,7 +30,7 @@ Most AI agents execute tasks. Ouroboros **creates itself.**
 ## Architecture
 
 ```
-Telegram --> colab_launcher.py
+Telegram --> docker_launcher.py / colab_launcher.py
                 |
             supervisor/              (process management)
               state.py              -- state, budget tracking
@@ -54,11 +54,49 @@ Telegram --> colab_launcher.py
                 control.py          -- restart, evolve, review
                 browser.py          -- Playwright (stealth)
                 review.py           -- multi-model review
-              llm.py                -- OpenRouter client
+              llm.py                -- OpenAI-compatible LLM client (LM Studio / OpenRouter)
               memory.py             -- scratchpad, identity, chat
               review.py             -- code metrics
               utils.py              -- utilities
 ```
+
+---
+
+## Quick Start (Docker/VPS)
+
+### Step 1: Prepare `.env`
+
+1. Copy the template:
+   ```bash
+   cp .env.example .env
+   ```
+2. Fill required values in `.env`:
+   - `OUROBOROS_LLM_BASE_URL` (LM Studio endpoint, usually `http://host.docker.internal:1234/v1`)
+   - `OUROBOROS_MODEL`
+   - `TELEGRAM_BOT_TOKEN`
+   - `TOTAL_BUDGET`
+   - `GITHUB_TOKEN`
+   - `GITHUB_USER`
+   - `GITHUB_REPO`
+
+### Step 2: Run in Docker
+
+```bash
+docker compose up -d --build
+```
+
+The container will:
+- clone your fork into `/data/ouroboros_repo` (inside Docker volume),
+- ensure `ouroboros` and `ouroboros-stable` branches exist on your fork,
+- start the supervisor runtime with persistent storage in `/data/Ouroboros`.
+
+### Step 3: Start Chatting
+
+Open your Telegram bot and send any message. The first person to write becomes the **creator** (owner).
+
+### Optional: Migrate memory from Colab Drive
+
+If you already have history in Google Drive (`MyDrive/Ouroboros/`), copy that directory into Docker volume path `/data/Ouroboros/` before first start, then ensure container user has write permissions.
 
 ---
 
@@ -75,7 +113,8 @@ Telegram --> colab_launcher.py
 
 | Key | Required | Where to get it |
 |-----|----------|-----------------|
-| `OPENROUTER_API_KEY` | Yes | [openrouter.ai/keys](https://openrouter.ai/keys) -- Create an account, add credits, generate a key |
+| `OUROBOROS_LLM_BASE_URL` | Yes | LM Studio local server URL (OpenAI-compatible endpoint, e.g. `http://127.0.0.1:1234/v1`) |
+| `OUROBOROS_MODEL` | Yes | Local model identifier loaded in LM Studio |
 | `TELEGRAM_BOT_TOKEN` | Yes | [@BotFather](https://t.me/BotFather) on Telegram (see Step 1) |
 | `TOTAL_BUDGET` | Yes | Your spending limit in USD (e.g. `50`) |
 | `GITHUB_TOKEN` | Yes | [github.com/settings/tokens](https://github.com/settings/tokens) -- Generate a classic token with `repo` scope |
@@ -100,13 +139,10 @@ import os
 CFG = {
     "GITHUB_USER": "YOUR_GITHUB_USERNAME",                       # <-- CHANGE THIS
     "GITHUB_REPO": "ouroboros",                                  # <-- repo name (after fork)
-    # Models
-    "OUROBOROS_MODEL": "anthropic/claude-sonnet-4.6",            # primary LLM (via OpenRouter)
-    "OUROBOROS_MODEL_CODE": "anthropic/claude-sonnet-4.6",       # code editing (Claude Code CLI)
-    "OUROBOROS_MODEL_LIGHT": "google/gemini-3-pro-preview",      # consciousness + lightweight tasks
+    # Local LLM (LM Studio OpenAI-compatible API)
+    "OUROBOROS_LLM_BASE_URL": "http://127.0.0.1:1234/v1",
+    "OUROBOROS_MODEL": "qwen/qwen3-30b-a3b-2507",
     "OUROBOROS_WEBSEARCH_MODEL": "gpt-5",                        # web search (OpenAI Responses API)
-    # Fallback chain (first model != active will be used on empty response)
-    "OUROBOROS_MODEL_FALLBACK_LIST": "anthropic/claude-sonnet-4.6,google/gemini-3-pro-preview,openai/gpt-4.1",
     # Infrastructure
     "OUROBOROS_MAX_WORKERS": "5",
     "OUROBOROS_MAX_ROUNDS": "200",                               # max LLM rounds per task
@@ -116,7 +152,7 @@ for k, v in CFG.items():
     os.environ[k] = str(v)
 
 # Clone the original repo (the boot shim will re-point origin to your fork)
-!git clone https://github.com/razzant/ouroboros.git /content/ouroboros_repo
+!git clone https://github.com/joi-lab/ouroboros.git /content/ouroboros_repo
 %cd /content/ouroboros_repo
 
 # Install dependencies
@@ -128,7 +164,7 @@ for k, v in CFG.items():
 
 ### Step 5: Start Chatting
 
-Open your Telegram bot and send any message. The first person to write becomes the **creator** (owner). All subsequent messages from other users are ignored.
+Open your Telegram bot and send any message. The first person to write becomes the **creator** (owner). All subsequent messages from other users are kindly ignored.
 
 **Restarting:** If Colab disconnects or you restart the runtime, just re-run the same cell. Your Ouroboros's evolution is preserved -- all changes are pushed to your fork, and agent state lives on Google Drive.
 
@@ -141,7 +177,7 @@ Open your Telegram bot and send any message. The first person to write becomes t
 | `/panic` | Emergency stop. Kills all workers and halts the process immediately. |
 | `/restart` | Soft restart. Saves state, kills workers, re-launches the process. |
 | `/status` | Shows active workers, task queue, and budget breakdown. |
-| `/evolve` | Start autonomous evolution mode. |
+| `/evolve` | Start autonomous evolution mode (attention! burns money). |
 | `/evolve stop` | Stop evolution mode. Also accepts `/evolve off`. |
 | `/review` | Queue a deep review task (code, understanding, identity). |
 | `/bg start` | Start background consciousness loop. Also accepts `/bg on`. |
@@ -176,7 +212,8 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Variable | Description |
 |----------|-------------|
-| `OPENROUTER_API_KEY` | OpenRouter API key for LLM calls |
+| `OUROBOROS_LLM_BASE_URL` | Base URL of OpenAI-compatible LLM endpoint (LM Studio local server) |
+| `OUROBOROS_MODEL` | Single active model used by the agent |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
 | `TOTAL_BUDGET` | Spending limit in USD |
 | `GITHUB_TOKEN` | GitHub personal access token with `repo` scope |
@@ -194,14 +231,14 @@ Full text: [BIBLE.md](BIBLE.md)
 |----------|---------|-------------|
 | `GITHUB_USER` | *(required in config cell)* | GitHub username |
 | `GITHUB_REPO` | `ouroboros` | GitHub repository name |
-| `OUROBOROS_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
-| `OUROBOROS_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
-| `OUROBOROS_MODEL_LIGHT` | `google/gemini-3-pro-preview` | Model for lightweight tasks (dedup, compaction) |
+| `OUROBOROS_LLM_BASE_URL` | `http://host.docker.internal:1234/v1` | OpenAI-compatible endpoint (LM Studio on host) |
+| `OUROBOROS_LLM_API_KEY` | `lm-studio` | API token for local endpoint (if required) |
+| `OUROBOROS_MODEL` | `qwen/qwen3-30b-a3b-2507` | Single model used for all agent tasks |
 | `OUROBOROS_WEBSEARCH_MODEL` | `gpt-5` | Model for web search (OpenAI Responses API) |
 | `OUROBOROS_MAX_WORKERS` | `5` | Maximum number of parallel worker processes |
 | `OUROBOROS_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
 | `OUROBOROS_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
-| `OUROBOROS_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
+| `OUROBOROS_MODEL_FALLBACK_LIST` | *(empty)* | Optional fallback chain; keep empty for strict single-model mode |
 
 ---
 
